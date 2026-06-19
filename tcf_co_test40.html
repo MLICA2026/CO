@@ -212,26 +212,66 @@ function updateHeader() {
   document.getElementById("pright").textContent = pct + "% complété";
 }
 
-function playAudio(qi) {
+function formatTimeJS(s) {
+  if (!s || !isFinite(s) || s < 0) return "0:00";
+  var m = Math.floor(s/60);
+  var sec = Math.floor(s%60);
+  return m + ":" + (sec<10?"0":"") + sec;
+}
+
+function pauseAllAudio() {
+  for (var k in audioObjs) {
+    var a = audioObjs[k];
+    if (a && !a.paused) {
+      a.pause();
+      var icon = document.getElementById("play-icon-"+k);
+      if (icon) icon.textContent = "▶";
+    }
+  }
+}
+
+function getOrCreateAudio(qi) {
+  if (audioObjs[qi]) return audioObjs[qi];
   var q = QQ[qi];
   var src = q.audio || ("CO 40/" + String(qi+1).padStart(3,"0") + ".MP3");
-  if (!audioObjs[qi]) audioObjs[qi] = new Audio(src);
-  var a = audioObjs[qi];
+  var a = new Audio(src);
+  audioObjs[qi] = a;
+  a.addEventListener("loadedmetadata", function(){
+    var seekEl = document.getElementById("seek-"+qi);
+    var durEl = document.getElementById("time-dur-"+qi);
+    if (seekEl) seekEl.max = a.duration;
+    if (durEl) durEl.textContent = formatTimeJS(a.duration);
+  });
+  a.addEventListener("timeupdate", function(){
+    var curEl = document.getElementById("time-cur-"+qi);
+    var seekEl = document.getElementById("seek-"+qi);
+    if (curEl) curEl.textContent = formatTimeJS(a.currentTime);
+    if (seekEl) seekEl.value = a.currentTime;
+  });
+  a.addEventListener("ended", function(){
+    var icon = document.getElementById("play-icon-"+qi);
+    if (icon) icon.textContent = "▶";
+  });
+  return a;
+}
+
+function playAudio(qi) {
+  var a = getOrCreateAudio(qi);
   var icon = document.getElementById("play-icon-"+qi);
-  var status = document.getElementById("audio-status-"+qi);
   if (!a.paused) {
     a.pause();
     if (icon) icon.textContent = "▶";
-    if (status) status.textContent = "En pause";
     return;
   }
-  a.play().catch(function(){ if(status) status.textContent="⚠️ Fichier audio introuvable"; });
+  pauseAllAudio();
+  a.play().catch(function(){});
+  icon = document.getElementById("play-icon-"+qi);
   if (icon) icon.textContent = "⏸";
-  if (status) status.textContent = "En cours...";
-  a.onended = function() {
-    if (icon) icon.textContent = "▶";
-    if (status) status.textContent = "✓ Terminé";
-  };
+}
+
+function seekAudio(qi, val) {
+  var a = getOrCreateAudio(qi);
+  a.currentTime = parseFloat(val);
 }
 
 function toggleTranscript(qi) {
@@ -244,6 +284,7 @@ function toggleTranscript(qi) {
 }
 
 function render(i) {
+  pauseAllAudio();
   cur = i;
   var q = QQ[i];
   var ua = ans[i];
@@ -260,13 +301,23 @@ function render(i) {
 
   var promptHtml = "";
 
+  var existingAudio = audioObjs[i];
+  var curT = existingAudio ? existingAudio.currentTime : 0;
+  var durT = (existingAudio && isFinite(existingAudio.duration)) ? existingAudio.duration : 0;
+  var isPlaying = existingAudio && !existingAudio.paused;
   var audioHtml =
-    "<div class='audio-row'>" +
-      "<button class='play-btn' onclick='playAudio("+i+")'>"+
-        "<span id='play-icon-"+i+"'>▶</span>"+
-      "</button>" +
-      "<span class='audio-label'>Écouter le document</span>" +
-      "<span class='audio-status' id='audio-status-"+i+"'></span>" +
+    "<div class='audio-row' style='flex-direction:column;align-items:stretch;gap:8px'>" +
+      "<div style='display:flex;align-items:center;gap:10px'>" +
+        "<button class='play-btn' onclick='playAudio("+i+")'>"+
+          "<span id='play-icon-"+i+"'>"+(isPlaying?"⏸":"▶")+"</span>"+
+        "</button>" +
+        "<span class='audio-label'>Écouter le document</span>" +
+      "</div>" +
+      "<div style='display:flex;align-items:center;gap:8px'>" +
+        "<span style='font-size:11px;color:#185FA5;min-width:30px;text-align:right' id='time-cur-"+i+"'>"+formatTimeJS(curT)+"</span>" +
+        "<input type='range' min='0' max='"+(durT||100)+"' step='0.1' value='"+curT+"' id='seek-"+i+"' oninput='seekAudio("+i+",this.value)' style='flex:1;height:4px;accent-color:#185FA5'>" +
+        "<span style='font-size:11px;color:#888;min-width:30px' id='time-dur-"+i+"'>"+formatTimeJS(durT)+"</span>" +
+      "</div>" +
     "</div>";
 
   var choicesHtml = "";
@@ -282,9 +333,7 @@ function render(i) {
     if (q.type === "document") {
       txt = "<span>" + esc(q.c[ci]) + "</span>";
     } else {
-      txt = done
-        ? "<span>" + esc(q.c[ci]) + "</span>"
-        : "<span style='color:#bbb;font-style:italic;font-size:13px'>— — —</span>";
+      txt = done ? "<span>" + esc(q.c[ci]) + "</span>" : "";
     }
     choicesHtml += "<button class='"+cls+"' onclick='pick("+i+","+ci+")'><span class='badge'>"+labels[ci]+"</span>"+txt+"</button>";
   }
@@ -300,11 +349,13 @@ function render(i) {
   if (done && q.transcript) {
     var tContent = hlText(q.transcript.replace(/^— /gm,""), q.k);
     var questionLine = (q.type === "document" && q.q) ? ("<div style='margin-top:.7rem;font-weight:500;font-style:normal'>" + esc(q.q) + "</div>") : "";
-    var keyLabel = q.k ? "<div class='key-label' style='margin-top:.7rem'>🔑 Phrase-clé surlignée</div>" : "";
     transcriptHtml =
       "<div class='transcript-box' style='display:block;margin-top:.85rem'>" +
-        tContent + questionLine + keyLabel +
+        tContent + questionLine +
       "</div>";
+    if (q.k) {
+      transcriptHtml += "<div class='key-label' style='margin-top:.6rem'>🔑 Phrase-clé surlignée</div>";
+    }
   }
 
   var prevDis = i===0 ? " disabled" : "";
@@ -346,6 +397,7 @@ function calcScore() {
 }
 
 function summary() {
+  pauseAllAudio();
   var r = calcScore();
   var nclc = getNclc(r.score);
   var gridHtml = "";
@@ -376,6 +428,7 @@ function summary() {
 }
 
 function showReport() {
+  pauseAllAudio();
   var labels = ["A","B","C","D"];
   var wrongItems = [];
   var html = "";
@@ -495,6 +548,7 @@ function printPDF() {
 }
 
 function reset() {
+  pauseAllAudio();
   ans = {};
   audioObjs = {};
   render(0);
