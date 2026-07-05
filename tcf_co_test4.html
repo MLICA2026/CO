@@ -191,7 +191,7 @@ function pauseAllAudio() {
 function getOrCreateAudio(qi) {
   if (audioObjs[qi]) return audioObjs[qi];
   var q = QQ[qi];
-  var src = q.audio || ("CO 4/" + String(qi+1).padStart(3,"0") + ".MP3");
+  var src = q.audio || ("CO 34/" + String(qi+1).padStart(3,"0") + ".MP3");
   var a = new Audio(src);
   audioObjs[qi] = a;
   a.addEventListener("loadedmetadata", function(){
