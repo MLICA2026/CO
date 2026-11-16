@@ -1014,6 +1014,27 @@ function showReport() {
     html;
 }
 
+var logo = (document.querySelector('.header img') || {}).src || '';
+
+
+var __mliFrame = false;
+function mliPrintWin() {
+  var w = null;
+  try { w = window.open("", "_blank"); } catch (e) { w = null; }
+  if (w && w.document) { __mliFrame = false; return w; }
+  var old = document.getElementById("mli-print-frame");
+  if (old) old.parentNode.removeChild(old);
+  var f = document.createElement("iframe");
+  f.id = "mli-print-frame";
+  f.style.cssText = "position:fixed;right:0;bottom:0;width:1px;height:1px;border:0;opacity:0";
+  document.body.appendChild(f);
+  __mliFrame = true;
+  return f.contentWindow;
+}
+function mliAfterWrite(pw) {
+  if (__mliFrame) setTimeout(function () { try { pw.focus(); pw.print(); } catch (e) { window.print(); } }, 500);
+}
+
 function printPDF() {
   var r = calcScore();
   var nclc = getNclc(r.score);
@@ -1045,7 +1066,8 @@ function printPDF() {
       "</div>";
   }
 
-  var pw = window.open("","_blank");
+  var pw = mliPrintWin();
+  pw.document.open();
   pw.document.write(`
     <!DOCTYPE html><html><head><meta charset="UTF-8">
     <title>TCF CO Test 27 – Rapport complet</title>
@@ -1095,6 +1117,7 @@ function printPDF() {
     </div>
   </body></html>`);
   pw.document.close();
+  mliAfterWrite(pw);
 }
 
 function reset() {
